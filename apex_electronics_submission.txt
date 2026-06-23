@@ -1,0 +1,370 @@
+============================================================
+APEX ELECTRONICS — DATABASE DESIGN & IMPLEMENTATION
+Database Programming Assignment (Resubmission)
+============================================================
+Company  : Apex Electronics (fictional electronics retailer)
+Platform : SQLite 3.x  (standard SQL — portable to MySQL / PostgreSQL
+           with minor type adjustments)
+Contents : PART 1  Database Design (Entities, ERD, Normalization)
+           PART 2  SQL Implementation (DDL + DML)
+============================================================
+
+
+############################################################
+# PART 1 — DATABASE DESIGN
+############################################################
+
+------------------------------------------------------------
+1.1  ENTITY IDENTIFICATION
+------------------------------------------------------------
+The system models the core operations of an electronics retailer:
+products supplied by vendors, grouped into categories, and sold to
+customers through orders. Five entities are used. (The assignment
+requires Suppliers, Products, Categories, and Orders; a Customers
+entity is added so that "Customer ID" in Orders is a true foreign key
+rather than an unmanaged value — this keeps the design in 3NF.)
+
+ENTITY: Categories
+  Purpose: Lookup table for product categories.
+  Attributes:
+    CategoryID    INTEGER       PRIMARY KEY  — surrogate key
+    CategoryName  VARCHAR(100)  NOT NULL, UNIQUE
+
+ENTITY: Suppliers
+  Purpose: Companies that supply products to Apex Electronics.
+  Attributes:
+    SupplierID    INTEGER       PRIMARY KEY  — surrogate key
+    SupplierName  VARCHAR(150)  NOT NULL
+    Phone         VARCHAR(20)
+    Email         VARCHAR(100)  UNIQUE
+
+ENTITY: Customers
+  Purpose: End consumers who place orders.
+  Attributes:
+    CustomerID    INTEGER       PRIMARY KEY  — surrogate key
+    CustomerName  VARCHAR(150)  NOT NULL
+    Phone         VARCHAR(20)
+    Email         VARCHAR(100)  UNIQUE
+    Address       VARCHAR(255)
+
+ENTITY: Products
+  Purpose: Master product catalogue with pricing and stock levels.
+  Attributes:
+    ProductID     INTEGER        PRIMARY KEY  — surrogate key
+    ProductName   VARCHAR(200)   NOT NULL
+    CategoryID    INTEGER        NOT NULL, FOREIGN KEY -> Categories(CategoryID)
+    SupplierID    INTEGER        NOT NULL, FOREIGN KEY -> Suppliers(SupplierID)
+    UnitPrice     DECIMAL(10,2)  NOT NULL, CHECK (UnitPrice >= 0)
+    QOH           INTEGER        NOT NULL, CHECK (QOH >= 0)   — Quantity On Hand
+
+ENTITY: Orders
+  Purpose: Customer order line items (one product per order row).
+  Attributes:
+    OrderID       INTEGER        PRIMARY KEY  — surrogate key
+    CustomerID    INTEGER        NOT NULL, FOREIGN KEY -> Customers(CustomerID)
+    ProductID     INTEGER        NOT NULL, FOREIGN KEY -> Products(ProductID)
+    Quantity      INTEGER        NOT NULL, CHECK (Quantity > 0)
+    OrderAmount   DECIMAL(10,2)  NOT NULL, CHECK (OrderAmount >= 0)
+    OrderDate     DATE           NOT NULL
+    OrderTime     TIME           NOT NULL
+
+
+------------------------------------------------------------
+1.2  ENTITY RELATIONSHIP DIAGRAM (ERD)
+------------------------------------------------------------
+RELATIONSHIPS & CARDINALITY
+  Categories (1) ───< (M) Products    : a category contains many products;
+                                        each product has exactly one category.
+  Suppliers  (1) ───< (M) Products    : a supplier supplies many products;
+                                        each product comes from one supplier.
+  Customers  (1) ───< (M) Orders      : a customer can place many orders;
+                                        each order belongs to one customer.
+  Products   (1) ───< (M) Orders      : a product can appear in many orders;
+                                        each order line refers to one product.
+
+ASCII ERD (PK = primary key, FK = foreign key)
+
+  +---------------------+            +-----------------------+
+  |     Categories      |            |      Suppliers        |
+  +---------------------+            +-----------------------+
+  | PK CategoryID  INT  |            | PK SupplierID   INT   |
+  |    CategoryName V100 |           |    SupplierName V150  |
+  +---------------------+            |    Phone        V20   |
+            |                        |    Email        V100  |
+            | 1                      +-----------------------+
+            |                                   | 1
+            | M                                 | M
+            v                                   v
+        +-------------------------------------------------+
+        |                    Products                     |
+        +-------------------------------------------------+
+        | PK ProductID    INT                             |
+        |    ProductName  VARCHAR(200)                    |
+        | FK CategoryID   INT  -> Categories(CategoryID)  |
+        | FK SupplierID   INT  -> Suppliers(SupplierID)   |
+        |    UnitPrice    DECIMAL(10,2)                   |
+        |    QOH          INT                             |
+        +-------------------------------------------------+
+                              | 1
+                              | M
+                              v
+  +---------------------+   +-------------------------------------------+
+  |     Customers       |   |                  Orders                   |
+  +---------------------+   +-------------------------------------------+
+  | PK CustomerID  INT  |   | PK OrderID      INT                       |
+  |    CustomerName V150|1 M| FK CustomerID   INT -> Customers(CustomerID)|
+  |    Phone        V20  +-->| FK ProductID    INT -> Products(ProductID) |
+  |    Email        V100|   |    Quantity     INT                       |
+  |    Address      V255|   |    OrderAmount  DECIMAL(10,2)             |
+  +---------------------+   |    OrderDate    DATE                      |
+                           |    OrderTime    TIME                      |
+                           +-------------------------------------------+
+
+RENDERABLE ERD SOURCE (paste into https://dbdiagram.io to view/export):
+
+  Table Categories {
+    CategoryID   int          [pk]
+    CategoryName varchar(100) [not null, unique]
+  }
+  Table Suppliers {
+    SupplierID   int          [pk]
+    SupplierName varchar(150) [not null]
+    Phone        varchar(20)
+    Email        varchar(100) [unique]
+  }
+  Table Customers {
+    CustomerID   int          [pk]
+    CustomerName varchar(150) [not null]
+    Phone        varchar(20)
+    Email        varchar(100) [unique]
+    Address      varchar(255)
+  }
+  Table Products {
+    ProductID    int           [pk]
+    ProductName  varchar(200)  [not null]
+    CategoryID   int           [not null]
+    SupplierID   int           [not null]
+    UnitPrice    decimal(10,2) [not null]
+    QOH          int           [not null]
+  }
+  Table Orders {
+    OrderID      int           [pk]
+    CustomerID   int           [not null]
+    ProductID    int           [not null]
+    Quantity     int           [not null]
+    OrderAmount  decimal(10,2) [not null]
+    OrderDate    date          [not null]
+    OrderTime    time          [not null]
+  }
+  Ref: Products.CategoryID > Categories.CategoryID
+  Ref: Products.SupplierID > Suppliers.SupplierID
+  Ref: Orders.CustomerID   > Customers.CustomerID
+  Ref: Orders.ProductID    > Products.ProductID
+
+
+------------------------------------------------------------
+1.3  NORMALIZATION VS. DENORMALIZATION
+------------------------------------------------------------
+This database is designed to satisfy the first three normal forms,
+which eliminate redundancy and update anomalies.
+
+First Normal Form (1NF) requires that every column hold a single,
+atomic value, that there are no repeating groups, and that each table
+has a primary key. The design meets 1NF because every attribute stores
+one indivisible value. For example, an order does not contain a list of
+products; instead each order row references exactly one product through
+ProductID, and multiple products on a purchase are represented as
+multiple rows. Every table also has a single-column primary key
+(CategoryID, SupplierID, CustomerID, ProductID, OrderID), so each row is
+uniquely identifiable.
+
+Second Normal Form (2NF) requires that the table already be in 1NF and
+that every non-key attribute depend on the whole primary key, removing
+partial dependencies. Partial dependencies only occur with composite
+keys. Because every table here uses a single-column surrogate primary
+key, no non-key attribute can depend on only part of the key, so 2NF is
+automatically satisfied. For instance, in Products, ProductName,
+UnitPrice, and QOH all depend on the full key ProductID and nothing
+else.
+
+Third Normal Form (3NF) requires 2NF plus the removal of transitive
+dependencies, meaning non-key attributes must not depend on other
+non-key attributes. The design achieves this by separating descriptive
+data into lookup tables. A category name is stored once in Categories
+rather than being repeated on every product, and a supplier's name,
+phone, and email live in Suppliers rather than in Products. This avoids
+the transitive dependency ProductID -> CategoryID -> CategoryName.
+Likewise, customer details are stored once in Customers instead of being
+copied onto every order. As a result, updating a supplier's phone number
+or a category name requires changing exactly one row, preventing update
+anomalies.
+
+Denormalization is the deliberate introduction of controlled redundancy
+to improve read performance or preserve historical accuracy, accepting
+some redundancy in exchange. This design uses one intentional example:
+the OrderAmount column in Orders. OrderAmount could be derived by
+multiplying Quantity by the product's current UnitPrice, so storing it is
+technically redundant. It is stored anyway for two reasons. First, it
+captures the price actually paid at the time of purchase; because
+UnitPrice can change later (the UPDATE below lowers the Dell XPS price),
+recomputing historical totals from the current price would produce wrong
+figures. Second, it lets reports and invoices read the order total
+directly without a join and calculation, which speeds up frequent reads.
+The trade-off is that the application must keep OrderAmount consistent
+with Quantity at insert time. This is a common and acceptable real-world
+denormalization decision for transactional data such as invoices.
+
+
+############################################################
+# PART 2 — SQL IMPLEMENTATION
+############################################################
+
+-- ============================================================
+-- PART 2 - SECTION 1: DDL  (Data Definition Language)
+-- ============================================================
+
+-- Drop tables in reverse FK order so the script is re-runnable.
+DROP TABLE IF EXISTS Orders;
+DROP TABLE IF EXISTS Products;
+DROP TABLE IF EXISTS Customers;
+DROP TABLE IF EXISTS Suppliers;
+DROP TABLE IF EXISTS Categories;
+
+-- Categories: lookup table for product categories.
+CREATE TABLE Categories (
+    CategoryID   INTEGER      PRIMARY KEY AUTOINCREMENT,
+    CategoryName VARCHAR(100) NOT NULL UNIQUE
+);
+
+-- Suppliers: companies that supply products.
+CREATE TABLE Suppliers (
+    SupplierID   INTEGER      PRIMARY KEY AUTOINCREMENT,
+    SupplierName VARCHAR(150) NOT NULL,
+    Phone        VARCHAR(20),
+    Email        VARCHAR(100) UNIQUE
+);
+
+-- Customers: end consumers who place orders.
+CREATE TABLE Customers (
+    CustomerID   INTEGER      PRIMARY KEY AUTOINCREMENT,
+    CustomerName VARCHAR(150) NOT NULL,
+    Phone        VARCHAR(20),
+    Email        VARCHAR(100) UNIQUE,
+    Address      VARCHAR(255)
+);
+
+-- Products: master catalogue; FK to Categories and Suppliers.
+CREATE TABLE Products (
+    ProductID    INTEGER        PRIMARY KEY AUTOINCREMENT,
+    ProductName  VARCHAR(200)   NOT NULL,
+    CategoryID   INTEGER        NOT NULL,
+    SupplierID   INTEGER        NOT NULL,
+    UnitPrice    DECIMAL(10, 2) NOT NULL CHECK (UnitPrice >= 0),
+    QOH          INTEGER        NOT NULL DEFAULT 0 CHECK (QOH >= 0),
+    FOREIGN KEY (CategoryID) REFERENCES Categories(CategoryID),
+    FOREIGN KEY (SupplierID) REFERENCES Suppliers(SupplierID)
+);
+
+-- Orders: order line items; FK to Customers and Products.
+-- OrderAmount is stored to preserve the price paid at purchase time.
+CREATE TABLE Orders (
+    OrderID      INTEGER        PRIMARY KEY AUTOINCREMENT,
+    CustomerID   INTEGER        NOT NULL,
+    ProductID    INTEGER        NOT NULL,
+    Quantity     INTEGER        NOT NULL CHECK (Quantity > 0),
+    OrderAmount  DECIMAL(10, 2) NOT NULL CHECK (OrderAmount >= 0),
+    OrderDate    DATE           NOT NULL,
+    OrderTime    TIME           NOT NULL,
+    FOREIGN KEY (CustomerID) REFERENCES Customers(CustomerID),
+    FOREIGN KEY (ProductID)  REFERENCES Products(ProductID)
+);
+
+
+-- ============================================================
+-- PART 2 - SECTION 2: DML  (Data Manipulation Language)
+-- ============================================================
+
+-- INSERT: Categories (6 rows)
+INSERT INTO Categories (CategoryName) VALUES ('Laptops & Computers');
+INSERT INTO Categories (CategoryName) VALUES ('Smartphones');
+INSERT INTO Categories (CategoryName) VALUES ('Audio & Headphones');
+INSERT INTO Categories (CategoryName) VALUES ('Televisions & Displays');
+INSERT INTO Categories (CategoryName) VALUES ('Accessories');
+INSERT INTO Categories (CategoryName) VALUES ('Tablets');
+
+-- INSERT: Suppliers (6 rows; supplier 6 deleted later)
+INSERT INTO Suppliers (SupplierName, Phone, Email)
+    VALUES ('TechSource Inc.',         '(555) 100-1001', 'info@techsource.com');
+INSERT INTO Suppliers (SupplierName, Phone, Email)
+    VALUES ('Global Electronics Ltd.', '(555) 100-1002', 'orders@globalelec.com');
+INSERT INTO Suppliers (SupplierName, Phone, Email)
+    VALUES ('ProTech Supplies',        '(555) 100-1003', 'supply@protech.com');
+INSERT INTO Suppliers (SupplierName, Phone, Email)
+    VALUES ('ElectroParts Co.',        '(555) 100-1004', 'sales@electroparts.com');
+INSERT INTO Suppliers (SupplierName, Phone, Email)
+    VALUES ('DigiWorld Distributors',  '(555) 100-1005', 'contact@digiworld.com');
+INSERT INTO Suppliers (SupplierName, Phone, Email)
+    VALUES ('QuickShip Electronics',   '(555) 100-1006', 'qs@quickship.com');
+
+-- INSERT: Customers (6 rows)
+INSERT INTO Customers (CustomerName, Phone, Email, Address)
+    VALUES ('John Smith',        '(555) 200-1001', 'john.smith@email.com',  '123 Main St, Boston, MA 02101');
+INSERT INTO Customers (CustomerName, Phone, Email, Address)
+    VALUES ('Sarah Johnson',     '(555) 200-1002', 'sarah.j@email.com',     '456 Oak Ave, Chicago, IL 60601');
+INSERT INTO Customers (CustomerName, Phone, Email, Address)
+    VALUES ('Michael Brown',     '(555) 200-1003', 'm.brown@email.com',     '789 Pine Rd, Houston, TX 77001');
+INSERT INTO Customers (CustomerName, Phone, Email, Address)
+    VALUES ('Emily Davis',       '(555) 200-1004', 'emily.d@email.com',     '321 Elm St, Phoenix, AZ 85001');
+INSERT INTO Customers (CustomerName, Phone, Email, Address)
+    VALUES ('Robert Wilson',     '(555) 200-1005', 'r.wilson@email.com',    '654 Maple Dr, Seattle, WA 98101');
+INSERT INTO Customers (CustomerName, Phone, Email, Address)
+    VALUES ('Jennifer Martinez', '(555) 200-1006', 'j.martinez@email.com',  '987 Cedar Ln, Miami, FL 33101');
+
+-- INSERT: Products (7 rows)
+-- CategoryID: 1=Laptops 2=Smartphones 3=Audio 4=TV 5=Accessories 6=Tablets
+INSERT INTO Products (ProductName, CategoryID, SupplierID, UnitPrice, QOH)
+    VALUES ('Dell XPS 15 Laptop',         1, 1, 1299.99,  45);
+INSERT INTO Products (ProductName, CategoryID, SupplierID, UnitPrice, QOH)
+    VALUES ('Samsung Galaxy S24 Ultra',   2, 2, 1199.99, 120);
+INSERT INTO Products (ProductName, CategoryID, SupplierID, UnitPrice, QOH)
+    VALUES ('Sony WH-1000XM5 Headphones', 3, 3,  349.99,  88);
+INSERT INTO Products (ProductName, CategoryID, SupplierID, UnitPrice, QOH)
+    VALUES ('LG C3 55" OLED TV',          4, 1, 1499.99,  22);
+INSERT INTO Products (ProductName, CategoryID, SupplierID, UnitPrice, QOH)
+    VALUES ('Anker USB-C 7-in-1 Hub',     5, 4,   49.99, 250);
+INSERT INTO Products (ProductName, CategoryID, SupplierID, UnitPrice, QOH)
+    VALUES ('Apple iPad Pro 12.9"',       6, 5, 1099.99,  67);
+INSERT INTO Products (ProductName, CategoryID, SupplierID, UnitPrice, QOH)
+    VALUES ('Apple MacBook Air M3',       1, 1, 1099.99,  55);
+
+-- INSERT: Orders (6 rows; order 6 deleted later)
+INSERT INTO Orders (CustomerID, ProductID, Quantity, OrderAmount, OrderDate, OrderTime)
+    VALUES (1, 1, 1, 1299.99, '2024-01-15', '10:30:00');
+INSERT INTO Orders (CustomerID, ProductID, Quantity, OrderAmount, OrderDate, OrderTime)
+    VALUES (2, 2, 2, 2399.98, '2024-01-16', '14:15:00');
+INSERT INTO Orders (CustomerID, ProductID, Quantity, OrderAmount, OrderDate, OrderTime)
+    VALUES (3, 3, 1,  349.99, '2024-01-17', '09:45:00');
+INSERT INTO Orders (CustomerID, ProductID, Quantity, OrderAmount, OrderDate, OrderTime)
+    VALUES (4, 5, 3,  149.97, '2024-01-18', '16:00:00');
+INSERT INTO Orders (CustomerID, ProductID, Quantity, OrderAmount, OrderDate, OrderTime)
+    VALUES (5, 4, 1, 1499.99, '2024-01-19', '11:30:00');
+INSERT INTO Orders (CustomerID, ProductID, Quantity, OrderAmount, OrderDate, OrderTime)
+    VALUES (6, 6, 1, 1099.99, '2024-01-20', '13:00:00');
+
+-- UPDATE statements
+-- 1) Market price reduction on the Dell XPS 15.
+UPDATE Products SET UnitPrice = 1249.99 WHERE ProductID = 1;
+-- 2) Correct a customer's email typo.
+UPDATE Customers SET Email = 'sarah.johnson@email.com' WHERE CustomerID = 2;
+-- 3) Reduce stock after fulfilling Order 2 (quantity 2).
+UPDATE Products SET QOH = QOH - 2 WHERE ProductID = 2;
+
+-- DELETE statements
+-- 1) Customer cancelled Order 6.
+DELETE FROM Orders WHERE OrderID = 6;
+-- 2) Supplier partnership not finalised (no products reference SupplierID 6).
+DELETE FROM Suppliers WHERE SupplierID = 6;
+
+-- ============================================================
+-- END OF SUBMISSION
+-- ============================================================
